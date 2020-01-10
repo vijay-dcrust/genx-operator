@@ -40,9 +40,23 @@ spec:
               description: Foo is an example field of GenericDaemon. Edit GenericDaemon_types.go
                 to remove/update
               type: string
+            protocol:
+              type: string
+            replica:
+              format: int32
+              type: integer
+            serviceport:
+              format: int32
+              type: integer
+            servicetype:
+              type: string
           required:
           - image
           - label
+          - protocol
+          - replica
+          - serviceport
+          - servicetype
           type: object
         status:
           description: GenericDaemonStatus defines the observed state of GenericDaemon

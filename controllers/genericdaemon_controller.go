@@ -47,8 +47,6 @@ type GenericDaemonReconciler struct {
 func (r *GenericDaemonReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	ctx := context.Background()
 	log := r.Log.WithValues("GenericDaemon", req.NamespacedName)
-
-	// your logic here
 	//var gd batchv1.GenericDaemon
 	gd := &batchv1.GenericDaemon{}
 	err := r.Get(ctx, req.NamespacedName, gd)
@@ -58,20 +56,54 @@ func (r *GenericDaemonReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 	} else if err != nil {
 		return ctrl.Result{}, err
 	}
-	//fmt.Println("gd.Name:", gd.Name, "gd.NameSpace:", gd.Namespace)
-	// Define the desired Daemonset object
-	daemonset := &appsv1.DaemonSet{
+
+	//Create a service first
+	service := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      gd.Name + "-daemonset",
+			Name:      gd.Name,
 			Namespace: gd.Namespace,
 		},
-		Spec: appsv1.DaemonSetSpec{
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{
+				corev1.ServicePort{
+					Protocol: corev1.Protocol(gd.Spec.Protocol),
+					Port:     gd.Spec.ServicePort,
+					//TargetPort: 80,
+				},
+			},
+			Selector: map[string]string{"statefulset": gd.Name + "-statefulset"},
+			Type:     corev1.ServiceType(gd.Spec.ServiceType),
+		},
+	}
+	err = r.Get(ctx, req.NamespacedName, service)
+	if err != nil && errors.IsNotFound(err) {
+		log.Info("Creating Service \n", service.Namespace, service.Name)
+		err := r.Create(ctx, service)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+	} else if err != nil {
+		return ctrl.Result{}, err
+	}
+	// your logic here
+	var replica int32 = gd.Spec.Replica
+	fmt.Println("gd.Name:", gd.Name, "gd.Status.Count:", gd.Status.Count)
+	// Define the desired statefulset object
+	statefulset := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      gd.Name + "-statefulset",
+			Namespace: gd.Namespace,
+		},
+		Spec: appsv1.StatefulSetSpec{
+			Replicas:    &replica,
+			ServiceName: gd.Name,
+			//MinReadySeconds: 5,
 			Selector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{"daemonset": gd.Name + "-daemonset"},
+				MatchLabels: map[string]string{"statefulset": gd.Name + "-statefulset"},
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{"daemonset": gd.Name + "-daemonset"},
+					Labels: map[string]string{"statefulset": gd.Name + "-statefulset"},
 				},
 				Spec: corev1.PodSpec{
 					NodeSelector: map[string]string{"daemon": gd.Spec.Label},
@@ -85,38 +117,40 @@ func (r *GenericDaemonReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 			},
 		},
 	}
-	if err := ctrl.SetControllerReference(gd, daemonset, r.Scheme); err != nil {
+	if err := ctrl.SetControllerReference(gd, statefulset, r.Scheme); err != nil {
 		return ctrl.Result{}, err
 	}
-	found := &appsv1.DaemonSet{}
-	//err := r.Get(ctx, types.NamespacedName{Name: daemonset.Name, Namespace: daemonset.Namespace}, found)
-	err = r.Get(ctx, client.ObjectKey{Namespace: daemonset.Namespace, Name: daemonset.Name}, found)
+	found := &appsv1.StatefulSet{}
+	//err := r.Get(ctx, types.NamespacedName{Name: statefulset.Name, Namespace: statefulset.Namespace}, found)
+	err = r.Get(ctx, client.ObjectKey{Namespace: statefulset.Namespace, Name: statefulset.Name}, found)
 	if err != nil && errors.IsNotFound(err) {
-		log.Info("Creating Daemonset \n", daemonset.Namespace, daemonset.Name)
-		err := r.Create(ctx, daemonset)
+		log.Info("Creating statefulset \n", statefulset.Namespace, statefulset.Name)
+		fmt.Println("statefulset.Status.Replicas:", statefulset.Status.Replicas)
+		err := r.Create(ctx, statefulset)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
 	} else if err != nil {
 		return ctrl.Result{}, err
 	}
-	//Wait for the daemonset to come up
-	time.Sleep(2)
-	err = r.Get(ctx, client.ObjectKey{Namespace: daemonset.Namespace, Name: daemonset.Name}, found)
-	// Get the number of Ready daemonsets and set the Count status
-	if err == nil && found.Status.CurrentNumberScheduled != gd.Status.Count {
+	//Wait for the statefulset to come up
+	time.Sleep(15 * time.Second)
+	err = r.Get(ctx, client.ObjectKey{Namespace: statefulset.Namespace, Name: statefulset.Name}, found)
+	// Get the number of Ready statefulsets and set the Count status
+	if err == nil && found.Status.CurrentReplicas != gd.Status.Count {
 		log.Info("Updating Status \n", gd.Namespace, gd.Name)
-		gd.Status.Count = found.Status.CurrentNumberScheduled
+		gd.Status.Count = found.Status.CurrentReplicas
 		err = r.Update(ctx, gd)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
 	}
+	err = r.Get(ctx, client.ObjectKey{Namespace: statefulset.Namespace, Name: statefulset.Name}, found)
 	fmt.Println("found.Name:", found.Name)
 	// Update the found object and write the result back if there are any changes
-	if !reflect.DeepEqual(daemonset.Spec, found.Spec) {
-		found.Spec = daemonset.Spec
-		log.Info("Updating Daemonset ", daemonset.Namespace, daemonset.Name)
+	if !reflect.DeepEqual(statefulset.Spec, found.Spec) {
+		found.Spec = statefulset.Spec
+		log.Info("Updating statefulset ", statefulset.Namespace, statefulset.Name)
 		fmt.Println("found.Name:", found.Name)
 		//fmt.Println("found.Spec.Label:", found.Spec.Template.Spec.Containers.)
 		err = r.Update(ctx, found)
@@ -124,7 +158,19 @@ func (r *GenericDaemonReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 			return ctrl.Result{}, err
 		}
 	}
-	return ctrl.Result{}, nil
+	//Install the packages in pod
+	pod := corev1.Pod{}
+	podList := &corev1.PodList{}
+
+	err = r.List(ctx, podList, client.InNamespace(req.Namespace), client.MatchingLabels{"statefulset": gd.Name + "-statefulset"})
+	numberPods := len((*podList).Items)
+	fmt.Println("numberPods:", numberPods)
+	for i := 0; i < numberPods; i++ {
+		pod = (*podList).Items[i]
+		fmt.Println("PodName:", pod.ObjectMeta.Name)
+	}
+	//RequeueAfter: 60000000
+	return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
 }
 
 func (r *GenericDaemonReconciler) SetupWithManager(mgr ctrl.Manager) error {

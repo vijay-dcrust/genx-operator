@@ -17,6 +17,7 @@ package v1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	// corev1 "k8s.io/api/core/v1"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
@@ -28,8 +29,12 @@ type GenericDaemonSpec struct {
 	// Important: Run "make" to regenerate code after modifying this file
 
 	// Foo is an example field of GenericDaemon. Edit GenericDaemon_types.go to remove/update
-	Label string `json:"label"`
-	Image string `json:"image"`
+	Label       string `json:"label"`
+	Image       string `json:"image"`
+	Replica     int32  `json:"replica"`
+	ServicePort int32  `json:"serviceport"`
+	Protocol    string `json:"protocol"`
+	ServiceType string `json:"servicetype"`
 }
 
 // GenericDaemonStatus defines the observed state of GenericDaemon

@@ -1,7 +1,11 @@
 apiVersion: batch.tutorial.kubebuilder.io/v1
 kind: GenericDaemon
 metadata:
-  name: genericdaemon-sample
+  name: genericdaemon
 spec:
   image: httpd
-  label: http
+  label: jupyter-notebook
+  replica: 2
+  serviceport: 8888
+  protocol: "TCP"
+  servicetype: "LoadBalancer"
